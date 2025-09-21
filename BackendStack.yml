@@ -23,6 +23,34 @@ Resources:
     Properties:
       ClusterName: !Sub "${AppName}-backend-cluster"
 
+  # --- ECS Task Role ---
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-ECSTaskRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  # --- ECS Task Execution Role ---
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-ECSTaskExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
   # --- SSM Parameters ---
   ECRRepositoryUriParam:
     Type: AWS::SSM::Parameter
@@ -31,6 +59,7 @@ Resources:
       Type: String
       Value: !GetAtt ECRRepository.RepositoryUri
       Overwrite: true
+    DependsOn: ECRRepository
 
   ECSClusterNameParam:
     Type: AWS::SSM::Parameter
@@ -39,6 +68,7 @@ Resources:
       Type: String
       Value: !Ref ECSCluster
       Overwrite: true
+    DependsOn: ECSCluster
 
   ECSServiceNameParam:
     Type: AWS::SSM::Parameter
@@ -46,6 +76,40 @@ Resources:
       Name: !Sub "/${AppName}/backend/ECSServiceName"
       Type: String
       Value: !Sub "${AppName}-backend-service"
+      Overwrite: true
+
+  GitHubOIDCRoleBackend:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-GitHubOIDCRole-Backend"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:ref:refs/heads/main"
+      Policies:
+        - PolicyName: SSMAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AppName}/backend/*"
+
+  GitHubOIDCRoleArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${AppName}/backend/GitHubOIDCRoleArn"
+      Type: String
+      Value: !GetAtt GitHubOIDCRoleBackend.Arn
       Overwrite: true
 
 Outputs:
@@ -58,3 +122,8 @@ Outputs:
     Value: !Ref ECSCluster
     Export:
       Name: !Sub "${AppName}-BackendECSClusterName"
+
+  GitHubOIDCRoleArn:
+    Value: !GetAtt GitHubOIDCRoleBackend.Arn
+    Export:
+      Name: !Sub "${AppName}-BackendOIDCRoleArn"
