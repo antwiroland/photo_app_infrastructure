@@ -1,19 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Frontend stack for Photo Lab App with GitHub OIDC and SSM
+Description: Frontend stack for Photo Lab App
 
 Parameters:
   AppName:
     Type: String
     Default: photo-lab
-  GitHubRepoOwner:
-    Type: String
-    Description: GitHub organization or username (e.g., "your-org")
-  GitHubRepoName:
-    Type: String
-    Description: GitHub repository name (e.g., "photo-frontend")
 
 Resources:
-  # ---------------- S3 Bucket ----------------
+  # --- S3 Bucket for frontend ---
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -34,7 +28,7 @@ Resources:
             Action: "s3:GetObject"
             Resource: !Sub "${FrontendBucket.Arn}/*"
 
-  # ---------------- CloudFront ----------------
+  # --- CloudFront Distribution ---
   CloudFrontOAI:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
@@ -60,92 +54,35 @@ Resources:
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
 
-  # ---------------- GitHub OIDC ----------------
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList: ["sts.amazonaws.com"]
-      ThumbprintList: ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-
-  GitHubOIDCRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${AppName}-GitHubOIDCRole-Frontend"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref GitHubOIDCProvider
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:ref:refs/heads/main"
-      Policies:
-        - PolicyName: FrontendS3Deploy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:PutObjectAcl
-                  - s3:GetObject
-                  - s3:DeleteObject
-                Resource: !Sub "${FrontendBucket.Arn}/*"
-              - Effect: Allow
-                Action:
-                  - s3:ListBucket
-                Resource: !Sub "${FrontendBucket.Arn}"
-        - PolicyName: FrontendCloudFrontInvalidate
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudfront:CreateInvalidation
-                Resource: "*"
-
-  # -----------------------------
-  # SSM Parameters
-  # -----------------------------
+  # --- SSM Parameters ---
   FrontendBucketParam:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub "/${AppName}/frontend/S3BucketName"
       Type: String
       Value: !Ref FrontendBucket
+      Overwrite: true
 
-  FrontendCloudFrontParam:
+  FrontendCFParam:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub "/${AppName}/frontend/CloudFrontDistributionId"
       Type: String
       Value: !Ref FrontendDistribution
-
-  GitHubOIDCRoleFrontendParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/frontend/GitHubOIDCRoleArn"
-      Type: String
-      Value: !GetAtt GitHubOIDCRole.Arn
+      Overwrite: true
 
 Outputs:
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub "${AppName}-FrontendBucket"
+
+  FrontendDistributionId:
+    Value: !Ref FrontendDistribution
+    Export:
+      Name: !Sub "${AppName}-FrontendCFId"
+
   FrontendURL:
-    Description: CloudFront distribution URL
     Value: !GetAtt FrontendDistribution.DomainName
     Export:
       Name: !Sub "${AppName}-FrontendURL"
-
-  FrontendBucketName:
-    Description: S3 bucket name
-    Value: !Ref FrontendBucket
-    Export:
-      Name: !Sub "${AppName}-FrontendBucketName"
-
-  GitHubOIDCRoleArn:
-    Description: OIDC Role ARN for GitHub Actions
-    Value: !GetAtt GitHubOIDCRole.Arn
-    Export:
-      Name: !Sub "${AppName}-GitHubOIDCRoleArn-Frontend"
