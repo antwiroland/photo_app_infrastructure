@@ -58,6 +58,7 @@ Resources:
       Name: !Sub "/${AppName}/backend/ECRRepositoryUri"
       Type: String
       Value: !GetAtt ECRRepository.RepositoryUri
+      Description: "ECR Repository URI for backend"
       Overwrite: true
     DependsOn: ECRRepository
 
@@ -67,6 +68,7 @@ Resources:
       Name: !Sub "/${AppName}/backend/ECSClusterName"
       Type: String
       Value: !Ref ECSCluster
+      Description: "ECS Cluster Name for backend"
       Overwrite: true
     DependsOn: ECSCluster
 
@@ -76,8 +78,10 @@ Resources:
       Name: !Sub "/${AppName}/backend/ECSServiceName"
       Type: String
       Value: !Sub "${AppName}-backend-service"
+      Description: "ECS Service Name for backend"
       Overwrite: true
 
+  # --- IAM Roles ---
   GitHubOIDCRoleBackend:
     Type: AWS::IAM::Role
     Properties:
@@ -87,11 +91,13 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:ref:refs/heads/main"
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:*"
+              StringEquals:
+                token.actions.githubusercontent.com:aud: "sts.amazonaws.com"
       Policies:
         - PolicyName: SSMAccess
           PolicyDocument:
@@ -110,6 +116,7 @@ Resources:
       Name: !Sub "/${AppName}/backend/GitHubOIDCRoleArn"
       Type: String
       Value: !GetAtt GitHubOIDCRoleBackend.Arn
+      Description: "GitHub OIDC Role ARN for backend"
       Overwrite: true
 
 Outputs:
