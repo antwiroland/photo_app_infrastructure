@@ -1,47 +1,116 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Backend stack for Photo Lab App (ECR, ECS, RDS, IAM roles, SSM parameters)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Backend stack for ECS/Fargate with ECR, RDS, and CodePipeline
 
 Parameters:
-  AppName:
+  EnvironmentName:
     Type: String
-    Default: photo-lab
-  GitHubRepoOwner:
+    Default: ecs-backend
+  AppPort:
+    Type: Number
+    Default: 80
+  DBName:
     Type: String
-  GitHubRepoName:
+    Default: gallerydb
+  DBMasterUsername:
     Type: String
+    Default: galleryuser
+  DBEngine:
+    Type: String
+    Default: postgres
+  DBEngineVersion:
+    Type: String
+    Default: 14.17
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.small
+  AllocatedStorage:
+    Type: Number
+    Default: 20
 
 Resources:
 
-  # --- ECR Repository ---
+  ######################
+  # VPC / Networking
+  ######################
+  BackendVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BackendVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BackendVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BackendVPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BackendVPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-private-2
+
+  BackendCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${EnvironmentName}-cluster
+
+  ######################
+  # ECR
+  ######################
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub "${AppName}-backend"
+      RepositoryName: !Sub ${EnvironmentName}-repo
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-repo
 
-  # --- ECS Cluster ---
-  BackendECSCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: !Sub "${AppName}-backend-cluster"
-
-  # --- ECS Task Role ---
-  ECSTaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${AppName}-ECSTaskRole"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action: sts:AssumeRole
-
-  # --- ECS Task Execution Role ---
+  ######################
+  # IAM Roles
+  ######################
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-ECSTaskExecutionRole"
+      RoleName: !Sub ${EnvironmentName}-ecs-task-execution
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -52,90 +121,118 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
 
-  # --- RDS Database (PostgreSQL) ---
-  BackendRDS:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBInstanceIdentifier: !Sub "${AppName}-backend-db"
-      AllocatedStorage: 20
-      DBInstanceClass: db.t3.micro
-      Engine: postgres
-      MasterUsername: admin
-      MasterUserPassword: !Sub "ChangeMe123!"
-      VPCSecurityGroups: [] # Add security groups if using VPC
-      PubliclyAccessible: false
-
-  # --- SSM Parameters ---
-  ECRRepositoryUriParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/backend/ECRRepositoryUri"
-      Type: String
-      Value: !Ref ECRRepository
-    DependsOn: ECRRepository
-
-  ECSClusterNameParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/backend/ECSClusterName"
-      Type: String
-      Value: !Ref BackendECSCluster
-    DependsOn: BackendECSCluster
-
-  ECSServiceNameParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/backend/ECSServiceName"
-      Type: String
-      Value: !Sub "${AppName}-backend-service"
-
-  # --- GitHub OIDC Role ---
-  GitHubOIDCRoleBackend:
+  ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-GitHubOIDCRole-Backend"
+      RoleName: !Sub ${EnvironmentName}-ecs-task-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:ref:refs/heads/main"
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
       Policies:
-        - PolicyName: SSMAccess
+        - PolicyName: TaskS3RDSSecrets
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - rds-db:connect
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
                   - ssm:GetParameter
-                  - ssm:GetParameters
-                Resource:
-                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AppName}/backend/*"
+                Resource: "*"
 
-  GitHubOIDCRoleArnParam:
-    Type: AWS::SSM::Parameter
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
     Properties:
-      Name: !Sub "/${AppName}/backend/GitHubOIDCRoleArn"
-      Type: String
-      Value: !GetAtt GitHubOIDCRoleBackend.Arn
-    DependsOn: GitHubOIDCRoleBackend
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-github-actions
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: "repo:*:ref:refs/heads/main"
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+      Policies:
+        - PolicyName: ECRPushPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: !GetAtt ECRRepository.Arn
+
+  ######################
+  # RDS
+  ######################
+  DBCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${EnvironmentName}/rds/credentials
+      Description: RDS credentials
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${DBMasterUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 16
+        ExcludePunctuation: true
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-db
+      AllocatedStorage: !Ref AllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: !Ref DBEngine
+      EngineVersion: !Ref DBEngineVersion
+      DBName: !Ref DBName
+      MasterUsername: !Join ["", ["{{resolve:secretsmanager:", !Ref DBCredentialsSecret, ":SecretString:username}}"]]
+      MasterUserPassword: !Join ["", ["{{resolve:secretsmanager:", !Ref DBCredentialsSecret, ":SecretString:password}}"]]
+      VPCSecurityGroups: []
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      StorageType: gp2
 
 Outputs:
   ECRRepositoryUri:
-    Value: !Ref ECRRepository
-    Export:
-      Name: !Sub "${AppName}-BackendECRUri"
-
+    Description: "ECR URI"
+    Value: !GetAtt ECRRepository.RepositoryUri
+  GitHubOidcRoleArn:
+    Description: "GitHub Actions OIDC Role ARN"
+    Value: !GetAtt GitHubActionsRole.Arn
   ECSClusterName:
-    Value: !Ref BackendECSCluster
-    Export:
-      Name: !Sub "${AppName}-BackendECSClusterName"
-
-  GitHubOIDCRoleArn:
-    Value: !GetAtt GitHubOIDCRoleBackend.Arn
-    Export:
-      Name: !Sub "${AppName}-BackendOIDCRoleArn"
+    Value: !Ref BackendCluster
+  RDSInstanceEndpoint:
+    Value: !GetAtt RDSInstance.Endpoint.Address

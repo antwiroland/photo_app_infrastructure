@@ -1,25 +1,22 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Frontend stack for Photo Lab App (S3 + CloudFront + GitHub OIDC + SSM parameters)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Frontend stack for S3 + CloudFront + GitHub OIDC
 
 Parameters:
-  AppName:
+  EnvironmentName:
     Type: String
-    Default: photo-lab
-  GitHubRepoOwner:
-    Type: String
-  GitHubRepoName:
-    Type: String
+    Default: frontend-stack
 
 Resources:
-
-  # --- S3 Bucket ---
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${AppName}-frontend-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub ${EnvironmentName}-bucket
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
       WebsiteConfiguration:
         IndexDocument: index.html
-        ErrorDocument: index.html
+        ErrorDocument: error.html
 
   FrontendBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -30,107 +27,61 @@ Resources:
         Statement:
           - Effect: Allow
             Principal: "*"
-            Action: "s3:GetObject"
-            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
 
-  # --- CloudFront OAI ---
-  CloudFrontOAI:
-    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
-    Properties:
-      CloudFrontOriginAccessIdentityConfig:
-        Comment: !Sub "OAI for ${AppName} frontend bucket"
-
-  # --- CloudFront Distribution ---
   FrontendDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
-        DefaultRootObject: index.html
         Origins:
-          - Id: FrontendOrigin
-            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+          - DomainName: !GetAtt FrontendBucket.DomainName
+            Id: S3Origin
             S3OriginConfig:
-              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOAI}"
+              OriginAccessIdentity: ""
         DefaultCacheBehavior:
-          TargetOriginId: FrontendOrigin
+          TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: [GET, HEAD]
-          CachedMethods: [GET, HEAD]
+          AllowedMethods: ["GET", "HEAD"]
+          CachedMethods: ["GET", "HEAD"]
+        DefaultRootObject: index.html
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
 
-  # --- GitHub OIDC Role ---
-  GitHubOIDCRoleFrontend:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
+
+  GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-GitHubOIDCRole-Frontend"
+      RoleName: !Sub ${EnvironmentName}-github-actions
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+              Federated: !Ref GitHubOidcProvider
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepoOwner}/${GitHubRepoName}:ref:refs/heads/main"
+                token.actions.githubusercontent.com:sub: "repo:*:ref:refs/heads/main"
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
       Policies:
-        - PolicyName: S3Access
+        - PolicyName: S3PushPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:PutObjectAcl
                   - s3:GetObject
-                  - s3:ListBucket
-                Resource:
-                  - !Sub "${FrontendBucket.Arn}"
-                  - !Sub "${FrontendBucket.Arn}/*"
-
-  # --- SSM Parameters ---
-  FrontendBucketParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/frontend/S3BucketName"
-      Type: String
-      Value: !Ref FrontendBucket
-    DependsOn: FrontendBucket
-
-  FrontendCFParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/frontend/CloudFrontDistributionId"
-      Type: String
-      Value: !Ref FrontendDistribution
-    DependsOn: FrontendDistribution
-
-  GitHubOIDCRoleArnParam:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/${AppName}/frontend/GitHubOIDCRoleArn"
-      Type: String
-      Value: !GetAtt GitHubOIDCRoleFrontend.Arn
-    DependsOn: GitHubOIDCRoleFrontend
-
-Outputs:
-  FrontendURL:
-    Value: !GetAtt FrontendDistribution.DomainName
-    Export:
-      Name: !Sub "${AppName}-FrontendURL"
-
-  FrontendBucketName:
-    Value: !Ref FrontendBucket
-    Export:
-      Name: !Sub "${AppName}-FrontendBucketName"
-
-  CloudFrontDistributionId:
-    Value: !Ref FrontendDistribution
-    Export:
-      Name: !Sub "${AppName}-FrontendDistributionId"
-
-  GitHubOIDCRoleArn:
-    Value: !GetAtt GitHubOIDCRoleFrontend.Arn
-    Export:
-      Name: !Sub "${AppName}-FrontendOIDCRoleArn"
+                Resource: !Sub ${FrontendBucket.Arn}/*
