@@ -448,6 +448,7 @@ Resources:
       ServiceNamespace: ecs
 
 
+
   ScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
