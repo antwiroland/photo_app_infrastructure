@@ -29,9 +29,9 @@ Parameters:
 
 Resources:
 
-  ######################
+  ####################################
   # VPC / Networking
-  ######################
+  ####################################
   BackendVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -91,9 +91,34 @@ Resources:
     Properties:
       ClusterName: !Sub ${EnvironmentName}-cluster
 
-  ######################
-  # ECR
-  ######################
+  ####################################
+  # Security Groups
+  ####################################
+  BackendSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS and RDS SG
+      VpcId: !Ref BackendVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref AppPort
+          ToPort: !Ref AppPort
+          CidrIp: 0.0.0.0/0
+
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS SG
+      VpcId: !Ref BackendVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BackendSG
+
+  ####################################
+  # ECR Repository
+  ####################################
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -104,9 +129,9 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-repo
 
-  ######################
+  ####################################
   # IAM Roles
-  ######################
+  ####################################
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -194,9 +219,9 @@ Resources:
                   - ecr:CompleteLayerUpload
                 Resource: !GetAtt ECRRepository.Arn
 
-  ######################
-  # RDS
-  ######################
+  ####################################
+  # RDS Secret
+  ####################################
   DBCredentialsSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -208,6 +233,21 @@ Resources:
         PasswordLength: 16
         ExcludePunctuation: true
 
+  ####################################
+  # RDS Subnet Group
+  ####################################
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Private subnets for RDS"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      DBSubnetGroupName: !Sub ${EnvironmentName}-dbsubnet
+
+  ####################################
+  # RDS Instance
+  ####################################
   RDSInstance:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -219,7 +259,8 @@ Resources:
       DBName: !Ref DBName
       MasterUsername: !Join ["", ["{{resolve:secretsmanager:", !Ref DBCredentialsSecret, ":SecretString:username}}"]]
       MasterUserPassword: !Join ["", ["{{resolve:secretsmanager:", !Ref DBCredentialsSecret, ":SecretString:password}}"]]
-      VPCSecurityGroups: []
+      VPCSecurityGroups:
+        - !Ref RDSSG
       DBSubnetGroupName: !Ref DBSubnetGroup
       MultiAZ: false
       PubliclyAccessible: false
