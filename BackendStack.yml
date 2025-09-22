@@ -443,9 +443,10 @@ Resources:
     Properties:
       MaxCapacity: 4
       MinCapacity: 0
-      ResourceId: !Sub service/${ECSCluster.ClusterName}/${ECSService.ServiceName}
+      ResourceId: !Sub service/${ECSCluster}/${ECSService}
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
+
 
   ScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
