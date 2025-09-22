@@ -21,7 +21,6 @@ Resources:
         IndexDocument: index.html
         ErrorDocument: index.html
 
-  # --- Bucket Policy for public read (optional for website hosting) ---
   FrontendBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -34,7 +33,7 @@ Resources:
             Action: "s3:GetObject"
             Resource: !Sub "${FrontendBucket.Arn}/*"
 
-  # --- CloudFront Origin Access Identity ---
+  # --- CloudFront OAI ---
   CloudFrontOAI:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties:
@@ -61,7 +60,7 @@ Resources:
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
 
-  # --- GitHub OIDC Role for GitHub Actions ---
+  # --- GitHub OIDC Role ---
   GitHubOIDCRoleFrontend:
     Type: AWS::IAM::Role
     Properties:
