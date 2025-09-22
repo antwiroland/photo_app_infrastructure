@@ -185,7 +185,7 @@ Resources:
   DBCredentialsSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub ${EnvironmentName}/rds/credentials
+      Name: !Sub ${EnvironmentName}/rds/credentials-new
       Description: RDS credentials
       GenerateSecretString:
         SecretStringTemplate: !Sub '{"username": "${DBMasterUsername}"}'
