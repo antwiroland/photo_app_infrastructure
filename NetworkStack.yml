@@ -1,7 +1,8 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Networking resources for Photo Lab App (with shared GitHub OIDC provider)
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Networking & IAM resources for Photo Lab backend
 
 Resources:
+
   ####################################
   # VPC and Subnets
   ####################################
@@ -13,40 +14,67 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: photo-lab-vpc
+          Value: photo-lab-backend-vpc
 
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [0, !GetAZs ""]
       MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
       CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs ""]
       MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs ""]
 
   ####################################
-  # Security Group
+  # Security Groups
   ####################################
-  DBSecurityGroup:
+  BackendSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow Postgres access
+      GroupDescription: Backend ECS and RDS SG
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS SG
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          CidrIp: 0.0.0.0/0  # tighten later
+          SourceSecurityGroupId: !Ref BackendSG
 
   ####################################
-  # GitHub OIDC Provider (Shared)
+  # GitHub OIDC Provider
   ####################################
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
@@ -58,7 +86,7 @@ Resources:
         - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
 
   ####################################
-  # GitHub Actions Role (Shared for frontend & backend)
+  # GitHub Actions Role
   ####################################
   GitHubActionsRole:
     Type: AWS::IAM::Role
@@ -88,11 +116,7 @@ Resources:
                   - s3:PutObjectAcl
                   - s3:GetObject
                   - s3:ListBucket
-                Resource:
-                  - !Sub "arn:aws:s3:::frontend-bucket-*"   # frontend S3
-                  - !Sub "arn:aws:s3:::frontend-bucket-*/*"
-                  - !Sub "arn:aws:s3:::backend-bucket-*"    # backend S3
-                  - !Sub "arn:aws:s3:::backend-bucket-*/*"
+                Resource: "*"
         - PolicyName: ECRPushAccess
           PolicyDocument:
             Version: 2012-10-17
@@ -105,7 +129,7 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
-                Resource: "*"  # or specific backend ECR ARN
+                Resource: "*"
         - PolicyName: RDSSecretsAccess
           PolicyDocument:
             Version: 2012-10-17
@@ -114,7 +138,7 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                   - ssm:GetParameter
-                Resource: "*"  # restrict to actual secrets later
+                Resource: "*"
 
 Outputs:
   VPCId:
@@ -125,26 +149,34 @@ Outputs:
   PublicSubnet1Id:
     Value: !Ref PublicSubnet1
     Export:
-      Name: PhotoLab-PublicSubnet1
+      Name: PhotoLab-PublicSubnet1Id
 
   PublicSubnet2Id:
     Value: !Ref PublicSubnet2
     Export:
-      Name: PhotoLab-PublicSubnet2
+      Name: PhotoLab-PublicSubnet2Id
 
-  DBSecurityGroupId:
-    Value: !Ref DBSecurityGroup
+  PrivateSubnet1Id:
+    Value: !Ref PrivateSubnet1
     Export:
-      Name: PhotoLab-DBSecurityGroup
+      Name: PhotoLab-PrivateSubnet1Id
 
-  GitHubOIDCProviderArn:
-    Description: ARN of the shared GitHub OIDC Provider
-    Value: !GetAtt GitHubOidcProvider.Arn
+  PrivateSubnet2Id:
+    Value: !Ref PrivateSubnet2
     Export:
-      Name: PhotoLab-GitHubOIDCProviderArn
+      Name: PhotoLab-PrivateSubnet2Id
+
+  BackendSecurityGroupId:
+    Value: !Ref BackendSG
+    Export:
+      Name: PhotoLab-BackendSGId
+
+  RDSSecurityGroupId:
+    Value: !Ref RDSSG
+    Export:
+      Name: PhotoLab-RDSSGId
 
   GitHubActionsRoleArn:
-    Description: ARN of the shared GitHub Actions Role
     Value: !GetAtt GitHubActionsRole.Arn
     Export:
       Name: PhotoLab-GitHubActionsRoleArn
