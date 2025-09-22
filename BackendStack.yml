@@ -186,7 +186,7 @@ Resources:
     Type: AWS::SecretsManager::Secret
     DeletionPolicy: Retain
     Properties:
-      Name: !Sub ${EnvironmentName}/rds/credentials
+      Name: !Sub ${EnvironmentName}/rds/credentials-new1
       Description: RDS credentials
       GenerateSecretString:
         SecretStringTemplate: !Sub '{"username": "${DBMasterUsername}"}'
