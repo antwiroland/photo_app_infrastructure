@@ -26,6 +26,9 @@ Parameters:
   AllocatedStorage:
     Type: Number
     Default: 20
+  FrontendGitHubOidcProviderArn:
+    Type: String
+    Description: ARN of the existing GitHub OIDC provider (from frontend stack)
 
 Resources:
 
@@ -179,15 +182,9 @@ Resources:
                   - ssm:GetParameter
                 Resource: "*"
 
-  GitHubOidcProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
-
+  ####################################
+  # GitHub Actions Role (uses frontend OIDC)
+  ####################################
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -197,7 +194,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOidcProvider
+              Federated: !Ref FrontendGitHubOidcProviderArn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
