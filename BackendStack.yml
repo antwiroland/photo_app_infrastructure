@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Backend stack for Photo Lab App (ECR, ECS, IAM roles, SSM parameters)
+Description: Backend stack for Photo Lab App (ECR, ECS, RDS, IAM roles, SSM parameters)
 
 Parameters:
   AppName:
@@ -51,6 +51,19 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # --- RDS Database (PostgreSQL) ---
+  BackendRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${AppName}-backend-db"
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      MasterUsername: admin
+      MasterUserPassword: !Sub "ChangeMe123!"
+      VPCSecurityGroups: [] # Add security groups if using VPC
+      PubliclyAccessible: false
 
   # --- SSM Parameters ---
   ECRRepositoryUriParam:
