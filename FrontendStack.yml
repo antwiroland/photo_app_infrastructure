@@ -5,11 +5,9 @@ Parameters:
   EnvironmentName:
     Type: String
     Default: frontend
-    Description: Name of the environment
   DeploymentZipFileName:
     Type: String
     Default: deployment-files.zip
-    Description: Deployment zip file
   AllowedGithubRepo:
     Type: String
     Default: XzibiT-Collins/photo-lab-frontend
@@ -46,60 +44,12 @@ Resources:
     Properties:
       Name: !Sub "/${EnvironmentName}/CloudFrontDistributionId"
       Type: String
-      Value: "TODO-ADD-CF-DISTRIBUTION-ID"  # Replace after creating CF distribution
-
-  ####################################
-  # GitHub OIDC Role
-  ####################################
-  GitHubOidcProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
-
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${EnvironmentName}-GitHubActionsRole"
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref GitHubOidcProvider
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${AllowedGithubRepo}:ref:${AllowedGithubBranch}"
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-      Path: "/"
-      Policies:
-        - PolicyName: S3PushPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:PutObjectAcl
-                  - s3:GetObject
-                  - s3:ListBucket
-                Resource:
-                  - !Sub "arn:aws:s3:::${FrontendBucket}"
-                  - !Sub "arn:aws:s3:::${FrontendBucket}/*"
+      Value: "TODO-ADD-CF-DISTRIBUTION-ID"
 
 Outputs:
   FrontendBucketName:
     Description: S3 Bucket name for frontend
     Value: !Ref FrontendBucket
-
-  GitHubOIDCRoleArn:
-    Description: Role ARN for GitHub Actions
-    Value: !GetAtt GitHubActionsRole.Arn
 
   CloudFrontDistributionParameter:
     Description: SSM Parameter name for CloudFront Distribution ID

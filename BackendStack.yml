@@ -26,9 +26,6 @@ Parameters:
   AllocatedStorage:
     Type: Number
     Default: 20
-  FrontendGitHubOidcProviderArn:
-    Type: String
-    Description: ARN of the existing GitHub OIDC provider (from frontend stack)
 
 Resources:
 
@@ -133,7 +130,7 @@ Resources:
           Value: !Sub ${EnvironmentName}-repo
 
   ####################################
-  # IAM Roles
+  # IAM Roles for ECS
   ####################################
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
@@ -181,40 +178,6 @@ Resources:
                   - secretsmanager:GetSecretValue
                   - ssm:GetParameter
                 Resource: "*"
-
-  ####################################
-  # GitHub Actions Role (uses frontend OIDC)
-  ####################################
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${EnvironmentName}-github-actions
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref FrontendGitHubOidcProviderArn
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringLike:
-                token.actions.githubusercontent.com:sub: "repo:*:ref:refs/heads/main"
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-      Policies:
-        - PolicyName: ECRPushPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:PutImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                Resource: !GetAtt ECRRepository.Arn
 
   ####################################
   # RDS Secret
@@ -267,9 +230,6 @@ Outputs:
   ECRRepositoryUri:
     Description: "ECR URI"
     Value: !GetAtt ECRRepository.RepositoryUri
-  GitHubOidcRoleArn:
-    Description: "GitHub Actions OIDC Role ARN"
-    Value: !GetAtt GitHubActionsRole.Arn
   ECSClusterName:
     Value: !Ref BackendCluster
   RDSInstanceEndpoint:

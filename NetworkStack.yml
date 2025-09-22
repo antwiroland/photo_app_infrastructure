@@ -1,7 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Networking resources for Photo Lab App
+Description: Networking resources for Photo Lab App (with shared GitHub OIDC provider)
 
 Resources:
+  ####################################
+  # VPC and Subnets
+  ####################################
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -28,6 +31,9 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       MapPublicIpOnLaunch: true
 
+  ####################################
+  # Security Group
+  ####################################
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -38,6 +44,77 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 0.0.0.0/0  # tighten later
+
+  ####################################
+  # GitHub OIDC Provider (Shared)
+  ####################################
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 7560d6f40fa55195f740ee2b1b7c0b4836cbe103
+
+  ####################################
+  # GitHub Actions Role (Shared for frontend & backend)
+  ####################################
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: photo-lab-github-actions
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringLike:
+                token.actions.githubusercontent.com:sub: "repo:*:ref:refs/heads/main"
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+      Path: "/"
+      Policies:
+        - PolicyName: S3FrontendBackendAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::frontend-bucket-*"   # frontend S3
+                  - !Sub "arn:aws:s3:::frontend-bucket-*/*"
+                  - !Sub "arn:aws:s3:::backend-bucket-*"    # backend S3
+                  - !Sub "arn:aws:s3:::backend-bucket-*/*"
+        - PolicyName: ECRPushAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: "*"  # or specific backend ECR ARN
+        - PolicyName: RDSSecretsAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - ssm:GetParameter
+                Resource: "*"  # restrict to actual secrets later
 
 Outputs:
   VPCId:
@@ -59,3 +136,15 @@ Outputs:
     Value: !Ref DBSecurityGroup
     Export:
       Name: PhotoLab-DBSecurityGroup
+
+  GitHubOIDCProviderArn:
+    Description: ARN of the shared GitHub OIDC Provider
+    Value: !GetAtt GitHubOidcProvider.Arn
+    Export:
+      Name: PhotoLab-GitHubOIDCProviderArn
+
+  GitHubActionsRoleArn:
+    Description: ARN of the shared GitHub Actions Role
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: PhotoLab-GitHubActionsRoleArn
