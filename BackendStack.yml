@@ -230,34 +230,50 @@ Resources:
                   - rds-db:connect
                 Resource: '*'
 
-  CodePipelineRole:
+  CodePipelineServiceRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "${AppName}-CodePipelineServiceRole"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service: codepipeline.amazonaws.com
-              Action: sts:AssumeRole
-          - Effect: Allow  # Add this to allow CodeDeploy to assume the role
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: sts:AssumeRole
+              Service: 
+                - codepipeline.amazonaws.com
+                - codedeploy.amazonaws.com  # ADD THIS LINE
+            Action: 
+              - sts:AssumeRole
       Policies:
-        - PolicyName: CodePipelinePermissions
+        - PolicyName: CodePipelineS3Access
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:*
-                  - codebuild:*
-                  - codedeploy:*
-                  - ecs:*
-                  - iam:PassRole
-                Resource: '*'
-              - Effect: Allow  # Add specific CodeDeploy permissions
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+
+        - PolicyName: CodePipelineCodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: "*"
+
+        - PolicyName: CodePipelineCodeDeployAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
                 Action:
                   - codedeploy:CreateDeployment
                   - codedeploy:GetDeployment
@@ -265,7 +281,53 @@ Resources:
                   - codedeploy:GetApplication
                   - codedeploy:GetApplicationRevision
                   - codedeploy:RegisterApplicationRevision
-                Resource: '*'
+                Resource: "*"
+
+        - PolicyName: CodePipelineECSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                Resource: "*"
+
+        - PolicyName: CodePipelineIAMPassRole
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+
+        - PolicyName: CodePipelineECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AppName}"
+
+        - PolicyName: CodePipelineECRAuth
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+      Path: /
 
   CodeBuildRole:
     Type: AWS::IAM::Role
@@ -489,7 +551,7 @@ Resources:
     Properties:
       ApplicationName: !Ref CodeDeployApp
       DeploymentGroupName: !Sub ${AppName}-deployment-group
-      ServiceRoleArn: !GetAtt CodePipelineRole.Arn
+      ServiceRoleArn: !GetAtt CodePipelineServiceRole.Arn
       DeploymentStyle:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
