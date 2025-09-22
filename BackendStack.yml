@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Complete Photo Lab Backend Infrastructure with ECS Fargate, RDS, ALB, and CI/CD
+Description: Complete Photo Lab Backend Infrastructure with ECS Fargate, RDS, ALB, and CI/CD using two Availability Zones
 
 Parameters:
   AppName:
@@ -28,14 +28,14 @@ Parameters:
     Default: 20
   GitHubRepo:
     Type: String
-    Default: antwiroland
+    Default: antwiroland/photo-lab-backend
   GitHubBranch:
     Type: String
     Default: main
 
 Resources:
   ####################################
-  # VPC and Networking
+  # VPC & Subnets
   ####################################
   VPC:
     Type: AWS::EC2::VPC
@@ -254,8 +254,30 @@ Resources:
                   - iam:PassRole
                 Resource: '*'
 
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:*
+                  - logs:*
+                  - s3:*
+                Resource: '*'
+
   ####################################
-  # ECR Repository
+  # ECR
   ####################################
   ECRRepository:
     Type: AWS::ECR::Repository
@@ -314,7 +336,7 @@ Resources:
           TargetGroupArn: !Ref ALBTargetGroup
 
   ####################################
-  # RDS Database
+  # RDS
   ####################################
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -333,7 +355,7 @@ Resources:
         SecretStringTemplate: !Sub '{"username": "${DBUsername}"}'
         GenerateStringKey: password
         PasswordLength: 16
-        ExcludeCharacters: '"@/\'
+        ExcludeCharacters: '"@/\\'
 
   RDSInstance:
     Type: AWS::RDS::DBInstance
@@ -355,7 +377,7 @@ Resources:
       BackupRetentionPeriod: 7
 
   ####################################
-  # ECS Task Definition
+  # ECS Task & Service
   ####################################
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -389,16 +411,13 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
 
-  ####################################
-  # ECS Service
-  ####################################
   ECSService:
     Type: AWS::ECS::Service
     Properties:
       ServiceName: !Sub ${AppName}-service
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref ECSTaskDefinition
-      DesiredCount: 0
+      DesiredCount: 2
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -442,7 +461,7 @@ Resources:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
 
   ####################################
-  # CodeDeploy
+  # CodeDeploy & CodePipeline
   ####################################
   CodeDeployApp:
     Type: AWS::CodeDeploy::Application
@@ -474,9 +493,6 @@ Resources:
               ListenerArns:
                 - !Ref ALBListener
 
-  ####################################
-  # S3 Artifact Bucket
-  ####################################
   ArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -490,9 +506,31 @@ Resources:
             ExpirationInDays: 30
             NoncurrentVersionExpirationInDays: 7
 
-  ####################################
-  # CodePipeline
-  ####################################
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AppName}-build
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: ECR_REPOSITORY
+            Value: !Ref ECRRepository
+          - Name: IMAGE_TAG
+            Value: latest
+
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -544,53 +582,6 @@ Resources:
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
               InputArtifacts:
                 - Name: BuildArtifact
-
-  BuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${AppName}-build
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: buildspec.yml
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
-        PrivilegedMode: true
-        EnvironmentVariables:
-          - Name: AWS_ACCOUNT_ID
-            Value: !Ref AWS::AccountId
-          - Name: AWS_REGION
-            Value: !Ref AWS::Region
-          - Name: ECR_REPOSITORY
-            Value: !Ref ECRRepository
-          - Name: IMAGE_TAG
-            Value: latest
-
-  CodeBuildRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CodeBuildAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:*
-                  - logs:*
-                  - s3:*
-                Resource: '*'
 
 Outputs:
   ALBDNSName:
