@@ -572,6 +572,8 @@ Resources:
       TaskDefinition: !Ref ECSTaskDefinition
       DesiredCount: 0
       LaunchType: FARGATE
+      DeploymentController:
+        Type: CODE_DEPLOY 
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
