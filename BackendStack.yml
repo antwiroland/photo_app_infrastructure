@@ -443,7 +443,7 @@ Resources:
     Properties:
       MaxCapacity: 4
       MinCapacity: 0
-      ResourceId: !Sub service/${ECSCluster}/${ECSService}
+      ResourceId: !Sub service/${AppName}-cluster/${AppName}-service
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
