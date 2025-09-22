@@ -1,54 +1,56 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Frontend stack for S3 + CloudFront + GitHub OIDC
+Description: Frontend stack for Photo Lab application
 
 Parameters:
   EnvironmentName:
     Type: String
-    Default: frontend-stack
+    Default: frontend
+    Description: Name of the environment
+  DeploymentZipFileName:
+    Type: String
+    Default: deployment-files.zip
+    Description: Deployment zip file
+  AllowedGithubRepo:
+    Type: String
+    Default: XzibiT-Collins/photo-lab-frontend
+  AllowedGithubBranch:
+    Type: String
+    Default: refs/heads/main
 
 Resources:
+
+  ####################################
+  # S3 Bucket for frontend
+  ####################################
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${EnvironmentName}-bucket
+      BucketName: !Sub "${EnvironmentName}-bucket-${AWS::AccountId}-${AWS::Region}"
       AccessControl: Private
       VersioningConfiguration:
         Status: Enabled
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-bucket"
 
-  FrontendBucketPolicy:
-    Type: AWS::S3::BucketPolicy
+  ####################################
+  # CloudFront Distribution Parameter
+  ####################################
+  FrontendCloudFrontDistributionId:
+    Type: AWS::SSM::Parameter
     Properties:
-      Bucket: !Ref FrontendBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action: s3:GetObject
-            Resource: !Sub ${FrontendBucket.Arn}/*
+      Name: !Sub "/${EnvironmentName}/CloudFrontDistributionId"
+      Type: String
+      Value: "TODO-ADD-CF-DISTRIBUTION-ID"  # Replace after creating CF distribution
 
-  FrontendDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        Origins:
-          - DomainName: !GetAtt FrontendBucket.DomainName
-            Id: S3Origin
-            S3OriginConfig:
-              OriginAccessIdentity: ""
-        DefaultCacheBehavior:
-          TargetOriginId: S3Origin
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: ["GET", "HEAD"]
-          CachedMethods: ["GET", "HEAD"]
-        DefaultRootObject: index.html
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
-
+  ####################################
+  # GitHub OIDC Role
+  ####################################
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -61,9 +63,9 @@ Resources:
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub ${EnvironmentName}-github-actions
+      RoleName: !Sub "${EnvironmentName}-GitHubActionsRole"
       AssumeRolePolicyDocument:
-        Version: "2012-10-17"
+        Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal:
@@ -71,17 +73,34 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringLike:
-                token.actions.githubusercontent.com:sub: "repo:*:ref:refs/heads/main"
+                token.actions.githubusercontent.com:sub: !Sub "repo:${AllowedGithubRepo}:ref:${AllowedGithubBranch}"
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
+      Path: "/"
       Policies:
         - PolicyName: S3PushPolicy
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:PutObjectAcl
                   - s3:GetObject
-                Resource: !Sub ${FrontendBucket.Arn}/*
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${FrontendBucket}"
+                  - !Sub "arn:aws:s3:::${FrontendBucket}/*"
+
+Outputs:
+  FrontendBucketName:
+    Description: S3 Bucket name for frontend
+    Value: !Ref FrontendBucket
+
+  GitHubOIDCRoleArn:
+    Description: Role ARN for GitHub Actions
+    Value: !GetAtt GitHubActionsRole.Arn
+
+  CloudFrontDistributionParameter:
+    Description: SSM Parameter name for CloudFront Distribution ID
+    Value: !Ref FrontendCloudFrontDistributionId
